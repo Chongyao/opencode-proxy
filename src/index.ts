@@ -7,23 +7,13 @@ const PLUGIN_NAME = 'opencode-proxy';
 interface ProxyState {
   config: ProxyPluginConfig | null;
   debug: boolean;
-  originalFetch: typeof fetch | null;
-  // Map from provider to proxy config
-  providerProxies: Map<string, ProxyConfig>;
   // Map from URL pattern to proxy URL
   compiledRules: Map<string, string> | null;
-}
-
-interface CompiledRule {
-  pattern: string;
-  proxyUrl: string;
 }
 
 const state: ProxyState = {
   config: null,
   debug: false,
-  originalFetch: null,
-  providerProxies: new Map(),
   compiledRules: null,
 };
 
@@ -119,7 +109,42 @@ function shouldUseProxyForUrl(url: string): string | null | undefined {
   return undefined;
 }
 
-const OpenCodeProxyPlugin: Plugin = async () => {
+/**
+ * Create a wrapped fetch function that routes through proxy
+ */
+function createProxiedFetch(originalFetch: typeof fetch): typeof fetch {
+  return async (
+    input: string | URL | Request,
+    init?: RequestInit
+  ): Promise<Response> => {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+    try {
+      const proxyUrl = shouldUseProxyForUrl(url);
+
+      if (proxyUrl === null || proxyUrl === undefined) {
+        // Direct connection - either explicitly configured or not in proxy list
+        log('Direct:', url.substring(0, 60));
+        return originalFetch(input, init);
+      }
+
+      console.error('[opencode-proxy] Proxy:', url.substring(0, 60), '->', proxyUrl);
+      const startTime = Date.now();
+      const response = await originalFetch(input, {
+        ...init,
+        proxy: proxyUrl,
+      } as RequestInit & { proxy?: string });
+      console.error('[opencode-proxy] Response:', url.substring(0, 60), 'in', Date.now() - startTime, 'ms');
+      return response;
+    } catch (error) {
+      log('Error processing request:', error);
+      return originalFetch(input, init);
+    }
+  };
+}
+
+const OpenCodeProxyPlugin: Plugin = async (ctx) => {
   state.config = loadConfig();
 
   if (!shouldUseProxy(state.config)) {
@@ -155,46 +180,13 @@ const OpenCodeProxyPlugin: Plugin = async () => {
     });
   }
 
-  // Defer fetch patching to avoid interfering with plugin loading
-  // Use longer delay to ensure we patch after other plugins
-  setTimeout(() => {
-    if (!state.originalFetch) {
-      state.originalFetch = globalThis.fetch;
-      globalThis.fetch = async (
-        input: string | URL | Request,
-        init?: RequestInit
-      ): Promise<Response> => {
-        const url =
-          typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-
-        try {
-          const proxyUrl = shouldUseProxyForUrl(url);
-
-          if (proxyUrl === null || proxyUrl === undefined) {
-            // Direct connection - either explicitly configured or not in proxy list
-            log('Direct:', url.substring(0, 60));
-            return state.originalFetch!(input, init);
-          }
-
-          console.error('[opencode-proxy] Proxy:', url.substring(0, 60), '->', proxyUrl);
-          const startTime = Date.now();
-          const response = await state.originalFetch!(input, {
-            ...init,
-            proxy: proxyUrl,
-          } as RequestInit & { proxy?: string });
-          console.error('[opencode-proxy] Response:', url.substring(0, 60), 'in', Date.now() - startTime, 'ms');
-          return response;
-        } catch (error) {
-          log('Error processing request:', error);
-          return state.originalFetch!(input, init);
-        }
-      };
-
-      console.error('[opencode-proxy] Fetch patched successfully');
-    } else {
-      console.error('[opencode-proxy] Fetch already patched by another plugin');
-    }
-  }, 100); // Increased delay to ensure we patch after other plugins
+  // Patch global fetch immediately
+  if ((globalThis as any).fetch && !(globalThis as any).__opencodeProxyPatched) {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createProxiedFetch(originalFetch);
+    (globalThis as any).__opencodeProxyPatched = true;
+    console.error('[opencode-proxy] Global fetch patched');
+  }
 
   return {};
 };
