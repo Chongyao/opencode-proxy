@@ -1,6 +1,6 @@
 {
   "name": "opencode-proxy",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "Per-provider proxy configuration for OpenCode - Route different AI providers through different proxies",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
