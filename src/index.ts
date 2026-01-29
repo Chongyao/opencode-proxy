@@ -145,44 +145,7 @@ const OpenCodeProxyPlugin: Plugin = async (ctx) => {
     log("Fetch patched");
   }
 
-  return {
-    "chat.params": async (input, output) => {
-      const { provider, model } = input;
-      const providerID = provider.source === "custom" 
-        ? model.providerID 
-        : Object.keys(provider.info ?? {}).length > 0 
-          ? (provider.info as any)?.id ?? model.providerID
-          : model.providerID;
-      
-      state.activeProvider = providerID;
-      
-      const providerConfig = config.providers?.find(p => {
-        if (p.provider === providerID) return true;
-        if (p.matchSubProviders && providerID.startsWith(p.provider)) return true;
-        return false;
-      });
-      
-      if (providerConfig) {
-        if (providerConfig.protocol === "direct") {
-          log("Direct:", providerID);
-          state.providerProxies.delete(providerID);
-          return;
-        }
-        const proxyUrl = buildProxyUrl(providerConfig);
-        state.providerProxies.set(providerID, proxyUrl);
-        log("Proxy:", providerID, "->", proxyUrl);
-      } else if (config.defaultProxy) {
-        const proxyUrl = buildProxyUrl({
-          provider: "default",
-          ...config.defaultProxy,
-        });
-        state.providerProxies.set(providerID, proxyUrl);
-        log("Default proxy:", providerID);
-      } else {
-        state.providerProxies.delete(providerID);
-      }
-    },
-  };
+  return {};
 };
 
 export default OpenCodeProxyPlugin;
