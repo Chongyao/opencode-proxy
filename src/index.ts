@@ -123,6 +123,7 @@ const OpenCodeProxyPlugin: Plugin = async () => {
   state.config = loadConfig();
 
   if (!shouldUseProxy(state.config)) {
+    console.error('[opencode-proxy] No proxy configured, skipping');
     return {};
   }
 
@@ -133,9 +134,10 @@ const OpenCodeProxyPlugin: Plugin = async () => {
   state.compiledRules = compileRules(config);
 
   const providers = getConfiguredProviders(config);
-  log('Initialized:', {
+  console.error('[opencode-proxy] Initialized:', {
     providers,
     patterns: state.compiledRules.size,
+    rules: Object.fromEntries(state.compiledRules),
   });
 
   // Watch config file for changes (hot reload)
@@ -154,6 +156,7 @@ const OpenCodeProxyPlugin: Plugin = async () => {
   }
 
   // Defer fetch patching to avoid interfering with plugin loading
+  // Use longer delay to ensure we patch after other plugins
   setTimeout(() => {
     if (!state.originalFetch) {
       state.originalFetch = globalThis.fetch;
@@ -173,20 +176,25 @@ const OpenCodeProxyPlugin: Plugin = async () => {
             return state.originalFetch!(input, init);
           }
 
-          log('Proxy:', url.substring(0, 60), '->', proxyUrl);
-          return state.originalFetch!(input, {
+          console.error('[opencode-proxy] Proxy:', url.substring(0, 60), '->', proxyUrl);
+          const startTime = Date.now();
+          const response = await state.originalFetch!(input, {
             ...init,
             proxy: proxyUrl,
           } as RequestInit & { proxy?: string });
+          console.error('[opencode-proxy] Response:', url.substring(0, 60), 'in', Date.now() - startTime, 'ms');
+          return response;
         } catch (error) {
           log('Error processing request:', error);
           return state.originalFetch!(input, init);
         }
       };
 
-      log('Fetch patched');
+      console.error('[opencode-proxy] Fetch patched successfully');
+    } else {
+      console.error('[opencode-proxy] Fetch already patched by another plugin');
     }
-  }, 0);
+  }, 100); // Increased delay to ensure we patch after other plugins
 
   return {};
 };
