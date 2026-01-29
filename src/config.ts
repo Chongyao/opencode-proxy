@@ -80,25 +80,21 @@ export function getProxyForProvider(
   config: ProxyPluginConfig,
   providerID: string
 ): ProxyConfig | null | undefined {
-  if (config.direct?.includes(providerID)) {
-    return { protocol: "direct" };
-  }
-  
   const providerConfig = config.providers?.find((p) => {
     if (p.provider === providerID) return true;
     if (p.matchSubProviders && providerID.startsWith(p.provider)) return true;
     return false;
   });
-  
+
   if (providerConfig) {
     const { provider: _, matchSubProviders: __, ...proxyConfig } = providerConfig;
     return proxyConfig;
   }
-  
+
   return config.defaultProxy;
 }
 
 export function shouldUseProxy(config: ProxyPluginConfig | null): boolean {
   if (!config) return false;
-  return !!(config.providers?.length || config.defaultProxy || config.direct?.length);
+  return !!(config.providers?.length || config.defaultProxy);
 }

@@ -33,8 +33,6 @@ export interface ProxyPluginConfig {
   defaultProxy?: ProxyConfig;
   /** Provider-specific proxy configurations */
   providers?: ProviderProxyConfig[];
-  /** List of provider IDs that should use direct connection (no proxy) */
-  direct?: string[];
   /** Enable debug logging */
   debug?: boolean;
   /** Timeout for proxy connections in milliseconds */
