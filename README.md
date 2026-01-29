@@ -1,6 +1,6 @@
 # OpenCode Proxy
 
-Per-provider proxy configuration for OpenCode. Route different AI providers through different proxies with fine-grained control.
+Per-provider proxy configuration for OpenCode. Route different AI providers through different proxies with a simple, concise configuration.
 
 ## Why?
 
@@ -13,14 +13,12 @@ OpenCode uses global `HTTP_PROXY`/`HTTPS_PROXY` environment variables that apply
 
 ## Features
 
-- **Per-provider proxy configuration** - Different proxies for different AI providers
+- **Simple URL-based configuration** - Just specify `provider: "proxy-url"`
+- **Direct by default** - Unconfigured providers connect directly (no proxy)
 - **Multiple proxy protocols** - Support for HTTP, HTTPS, SOCKS4, and SOCKS5 proxies
-- **Direct connection mode** - Bypass proxy for specific providers
-- **Sub-provider matching** - e.g., `google` matches `google-vertex`
-- **Environment variables** - Configure via env vars for CI/CD workflows
-- **Configuration hot reload** - Changes to `proxy.json` are automatically picked up (in debug mode)
+- **Built-in auth support** - URL-encoded username/password in proxy URL
 - **Debug logging** - Detailed logs for troubleshooting
-- **Compatible** - Works with `opencode-antigravity-auth` and `oh-my-opencode`
+- **Configuration hot reload** - Changes to `proxy.json` are automatically picked up
 
 ## Installation
 
@@ -52,25 +50,13 @@ Create `~/.config/opencode/proxy.json`:
 
 ```json
 {
-  "providers": [
-    {
-      "provider": "google",
-      "protocol": "http",
-      "host": "127.0.0.1",
-      "port": 20171
-    },
-    {
-      "provider": "anthropic",
-      "protocol": "socks5",
-      "host": "127.0.0.1",
-      "port": 1080,
-      "username": "user",
-      "password": "pass"
-    }
-  ],
-  "direct": ["moonshot", "kimi"]
+  "debug": true,
+  "google": "http://127.0.0.1:20171",
+  "openai": "socks5://127.0.0.1:1080"
 }
 ```
+
+**That's it!** Any provider not listed (like `moonshot`, `kimi`, `anthropic`) will connect directly without a proxy.
 
 ## Configuration
 
@@ -80,81 +66,37 @@ The plugin looks for configuration at:
 - `$XDG_CONFIG_HOME/opencode/proxy.json`
 - `~/.config/opencode/proxy.json` (default)
 
-### Configuration Schema
+### Configuration Format
 
 ```json
 {
-  "version": "1",
-  "debug": false,
-  "timeout": 30000,
-  "defaultProxy": {
-    "protocol": "http",
-    "host": "127.0.0.1",
-    "port": 8080,
-    "username": "optional",
-    "password": "optional"
-  },
-  "providers": [
-    {
-      "provider": "google",
-      "protocol": "http",
-      "host": "127.0.0.1",
-      "port": 20171,
-      "matchSubProviders": true
-    }
-  ],
-  "direct": ["moonshot", "kimi"]
+  "debug": true,
+  "google": "http://127.0.0.1:20171",
+  "anthropic": "socks5://user:pass@127.0.0.1:1080",
+  "openai": "https://proxy.example.com:8443"
 }
 ```
 
 ### Configuration Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `version` | string | Config format version (default: "1") |
-| `debug` | boolean | Enable debug logging |
-| `timeout` | number | Connection timeout in milliseconds |
-| `defaultProxy` | ProxyConfig | Default proxy for providers without specific config |
-| `providers` | ProviderProxyConfig[] | Provider-specific proxy configurations |
-| `direct` | string[] | List of provider IDs to connect directly (no proxy) |
+| Key | Type | Description |
+|-----|------|-------------|
+| `debug` | boolean | Enable debug logging (optional) |
+| `<provider>` | string | Proxy URL for the provider (optional) |
 
-### Environment Variables
+**Proxy URL format:** `protocol://[username:password@]host:port`
 
-You can also configure the plugin using environment variables. This is useful for CI/CD environments or when you want to quickly override file configuration.
+### Supported Protocols
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `OPENCODE_PROXY_DEFAULT` | Default proxy for all providers | `socks5://127.0.0.1:1080` |
-| `OPENCODE_PROXY_<PROVIDER>` | Provider-specific proxy | `OPENCODE_PROXY_GOOGLE=http://127.0.0.1:20171` |
-| `OPENCODE_PROXY_DIRECT` | Comma-separated list of providers to connect directly | `moonshot,kimi,groq` |
-| `OPENCODE_PROXY_DEBUG` | Enable debug logging | `true` |
-| `OPENCODE_PROXY_TIMEOUT` | Connection timeout in milliseconds | `30000` |
+| Protocol | Example |
+|----------|---------|
+| HTTP | `http://127.0.0.1:8080` |
+| HTTPS | `https://proxy.example.com:8443` |
+| SOCKS | `socks://127.0.0.1:1080` |
+| SOCKS4 | `socks4://127.0.0.1:1080` |
+| SOCKS5 | `socks5://127.0.0.1:1080` |
 
-**Environment variables take precedence over file configuration.**
-
-### ProxyConfig Options
-
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `protocol` | string | Yes | Proxy protocol: `http`, `https`, `socks`, `socks4`, `socks5`, `direct` |
-| `host` | string | Yes* | Proxy hostname or IP |
-| `port` | number | Yes* | Proxy port (1-65535) |
-| `username` | string | No | Username for proxy authentication |
-| `password` | string | No | Password for proxy authentication |
-| `headers` | object | No | Additional headers for proxy connection |
-
-*Required unless `protocol` is `direct`
-
-### ProviderProxyConfig Options
-
-Extends `ProxyConfig` with:
-
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `provider` | string | Yes | Provider ID to match (e.g., "google", "anthropic") |
-| `matchSubProviders` | boolean | No | Match sub-providers (e.g., "google" matches "google-vertex") |
-
-## Supported Providers
+### Supported Providers
 
 The following provider IDs are supported:
 
@@ -183,143 +125,76 @@ You can also use any custom provider ID that OpenCode supports.
 
 ## Examples
 
-### Example 1: Route Google through Local Proxy
+### Example 1: Route Only Google through Proxy
 
 ```json
 {
-  "providers": [
-    {
-      "provider": "google",
-      "protocol": "http",
-      "host": "127.0.0.1",
-      "port": 20171
-    }
-  ]
+  "google": "http://127.0.0.1:20171"
 }
 ```
 
-### Example 2: Use SOCKS5 Proxy for All Providers Except Specific Ones
+Only Google Gemini goes through the proxy. All other providers connect directly.
+
+### Example 2: Multiple Providers with Different Proxies
 
 ```json
 {
-  "defaultProxy": {
-    "protocol": "socks5",
-    "host": "127.0.0.1",
-    "port": 1080
-  },
-  "direct": ["moonshot", "kimi"]
+  "google": "http://127.0.0.1:20171",
+  "openai": "socks5://127.0.0.1:1080",
+  "anthropic": "https://proxy.example.com:8443"
 }
 ```
 
-### Example 3: Different Proxies for Different Providers
+### Example 3: Proxy with Authentication
 
 ```json
 {
-  "providers": [
-    {
-      "provider": "google",
-      "protocol": "http",
-      "host": "proxy1.example.com",
-      "port": 8080
-    },
-    {
-      "provider": "anthropic",
-      "protocol": "https",
-      "host": "proxy2.example.com",
-      "port": 8443,
-      "username": "user",
-      "password": "pass"
-    },
-    {
-      "provider": "openai",
-      "protocol": "socks5",
-      "host": "127.0.0.1",
-      "port": 1080
-    }
-  ],
-  "direct": ["groq", "mistral"]
+  "google": "http://user:password@proxy.example.com:8080",
+  "anthropic": "socks5://user:pass@127.0.0.1:1080"
 }
 ```
 
-### Example 4: Sub-Provider Matching
-
+For special characters in credentials, use URL encoding:
 ```json
 {
-  "providers": [
-    {
-      "provider": "google",
-      "protocol": "http",
-      "host": "127.0.0.1",
-      "port": 20171,
-      "matchSubProviders": true
-    }
-  ]
+  "google": "http://user%40domain:p%40ssword@proxy.com:8080"
 }
 ```
 
-This configuration will match:
-- `google`
-- `google-vertex`
-- `google-vertex-anthropic`
-
-### Example 5: Debug Mode
+### Example 4: Debug Mode
 
 ```json
 {
   "debug": true,
-  "providers": [
-    {
-      "provider": "google",
-      "protocol": "http",
-      "host": "127.0.0.1",
-      "port": 20171
-    }
-  ]
+  "google": "http://127.0.0.1:20171"
 }
 ```
 
-### Example 6: Environment Variables
-
-```bash
-# Set default proxy for all providers
-export OPENCODE_PROXY_DEFAULT="socks5://127.0.0.1:1080"
-
-# Configure specific providers
-export OPENCODE_PROXY_GOOGLE="http://127.0.0.1:20171"
-export OPENCODE_PROXY_ANTHROPIC="http://user:pass@proxy.example.com:8080"
-
-# Direct connection for specific providers
-export OPENCODE_PROXY_DIRECT="moonshot,kimi,groq"
-
-# Enable debug logging
-export OPENCODE_PROXY_DEBUG="true"
-```
-
-Environment variables can be used alongside the configuration file. **Environment variables take precedence.**
-
 With debug mode enabled, you'll see logs like:
 ```
-[opencode-proxy] Processing request for provider: google
-[opencode-proxy] Using proxy for provider: google { protocol: 'http', host: '127.0.0.1', port: 20171 }
-[opencode-proxy] Successfully injected proxied fetch for: google
+[opencode-proxy] Initialized: { providers: ['google'], patterns: 3 }
+[opencode-proxy] Fetch patched
+[opencode-proxy] Proxy: https://generativelanguage.googleapis.com/v1beta/models -> http://127.0.0.1:20171
+[opencode-proxy] Direct: https://api.moonshot.cn/v1/models
 ```
+
+### Example 5: Minimal Configuration
+
+```json
+{
+  "google": "http://127.0.0.1:20171"
+}
+```
+
+Moonshot, Kimi, and all other providers not listed will connect directly.
 
 ## How It Works
 
-The plugin uses OpenCode's `chat.params` hook to intercept outgoing requests to AI providers. When a request is made:
+The plugin patches the global `fetch` function to intercept outgoing requests to AI providers. When a request is made:
 
-1. The plugin identifies the provider from the request
-2. Looks up the proxy configuration for that provider
-3. Creates an appropriate proxy agent (HTTP, HTTPS, or SOCKS)
-4. Injects the proxied `fetch` function into the request options
-5. The AI SDK uses the proxied fetch to route requests through the configured proxy
-
-## Compatibility
-
-- OpenCode >= 1.0.0
-- Compatible with `opencode-antigravity-auth`
-- Compatible with `oh-my-opencode`
-- Works with all AI providers supported by OpenCode
+1. The plugin identifies the provider from the request URL
+2. If the provider is configured with a proxy URL, the request is routed through that proxy
+3. If the provider is not configured, the request connects directly (no proxy)
 
 ## Troubleshooting
 
@@ -343,13 +218,11 @@ node -e "console.log(JSON.parse(require('fs').readFileSync(process.env.HOME + '/
 - Enable debug mode to see what's happening
 
 **Connection timeouts:**
-- Increase the `timeout` value in your config
 - Check that your proxy is running and accessible
 - Verify proxy host and port are correct
 
 **Authentication failures:**
-- Ensure username/password are correctly specified
-- Check if your proxy requires URL-encoded credentials
+- Ensure username/password are correctly URL-encoded if they contain special characters
 
 ## Development
 

@@ -1,0 +1,6 @@
+{
+  "debug": true,
+  "google": "http://127.0.0.1:20171",
+  "openai": "socks5://127.0.0.1:1080",
+  "anthropic": "https://proxy.example.com:8443"
+}

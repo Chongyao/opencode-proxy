@@ -1,50 +1,40 @@
 /**
  * Configuration types for opencode-proxy
+ * New simplified format: { "google": "http://127.0.0.1:20171", "openai": "socks5://127.0.0.1:1080" }
+ * Unconfigured providers connect directly by default.
  */
 
-export type ProxyProtocol = "http" | "https" | "socks" | "socks4" | "socks5" | "direct";
+export type ProxyProtocol = "http" | "https" | "socks" | "socks4" | "socks5";
 
 export interface ProxyConfig {
   /** The proxy protocol to use */
   protocol: ProxyProtocol;
-  /** Proxy host (ignored for direct) */
-  host?: string;
-  /** Proxy port (ignored for direct) */
-  port?: number;
+  /** Proxy host */
+  host: string;
+  /** Proxy port */
+  port: number;
   /** Username for proxy authentication */
   username?: string;
   /** Password for proxy authentication */
   password?: string;
-  /** Additional headers to send to the proxy */
-  headers?: Record<string, string>;
 }
 
-export interface ProviderProxyConfig extends ProxyConfig {
-  /** Provider ID to match (e.g., "google", "anthropic", "openai") */
-  provider: string;
-  /** Whether to match sub-providers (e.g., "google-vertex" matches "google") */
-  matchSubProviders?: boolean;
-}
-
+/**
+ * Simplified proxy configuration.
+ * Each key is a provider ID, value is a proxy URL.
+ * Unconfigured providers connect directly.
+ */
 export interface ProxyPluginConfig {
-  /** Version of the config format */
-  version?: "1";
-  /** Default proxy to use when no provider-specific proxy is configured */
-  defaultProxy?: ProxyConfig;
-  /** Provider-specific proxy configurations */
-  providers?: ProviderProxyConfig[];
-  /** List of provider IDs to connect directly (bypass proxy) */
-  direct?: string[];
   /** Enable debug logging */
   debug?: boolean;
-  /** Timeout for proxy connections in milliseconds */
-  timeout?: number;
+  /** Proxy URL for each provider. Format: protocol://[username:password@]host:port */
+  [provider: string]: string | boolean | undefined;
 }
 
 /** Provider ID patterns that can be matched */
-export type KnownProvider = 
+export type KnownProvider =
   | "google"
-  | "anthropic" 
+  | "anthropic"
   | "openai"
   | "azure"
   | "amazon-bedrock"
@@ -69,7 +59,7 @@ export type KnownProvider =
 
 /** Built-in provider URL patterns for detection */
 export const PROVIDER_URL_PATTERNS: Record<string, string[]> = {
-  google: ["generativelanguage.googleapis.com", "ai.google.dev"],
+  google: ["generativelanguage.googleapis.com", "ai.google.dev", "googleapis.com"],
   "google-vertex": ["vertexai.googleapis.com", "aiplatform.googleapis.com"],
   "google-vertex-anthropic": ["vertexai.googleapis.com"],
   anthropic: ["api.anthropic.com"],

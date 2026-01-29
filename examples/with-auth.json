@@ -1,0 +1,4 @@
+{
+  "google": "http://user:password@proxy.example.com:8080",
+  "anthropic": "socks5://user:pass@127.0.0.1:1080"
+}

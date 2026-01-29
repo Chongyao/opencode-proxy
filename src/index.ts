@@ -1,6 +1,6 @@
 import type { Plugin } from '@opencode-ai/plugin';
-import { loadConfig, shouldUseProxy, watchConfig } from './config.js';
-import type { ProxyPluginConfig, ProviderProxyConfig } from './types.js';
+import { loadConfig, shouldUseProxy, watchConfig, parseProxyUrl, getConfiguredProviders } from './config.js';
+import type { ProxyPluginConfig, ProxyConfig } from './types.js';
 
 const PLUGIN_NAME = 'opencode-proxy';
 
@@ -8,26 +8,21 @@ interface ProxyState {
   config: ProxyPluginConfig | null;
   debug: boolean;
   originalFetch: typeof fetch | null;
-  activeProvider: string | null;
-  providerProxies: Map<string, string>;
-  // Pre-compiled URL matching rules for performance
-  compiledRules: CompiledRules | null;
+  // Map from provider to proxy config
+  providerProxies: Map<string, ProxyConfig>;
+  // Map from URL pattern to proxy URL
+  compiledRules: Map<string, string> | null;
 }
 
-interface CompiledRules {
-  // Map from URL pattern to proxy URL or null (for direct)
-  patternToProxy: Map<string, string | null>;
-  // Default proxy URL if set
-  defaultProxy: string | null;
-  // Direct patterns that should bypass proxy
-  directPatterns: Set<string>;
+interface CompiledRule {
+  pattern: string;
+  proxyUrl: string;
 }
 
 const state: ProxyState = {
   config: null,
   debug: false,
   originalFetch: null,
-  activeProvider: null,
   providerProxies: new Map(),
   compiledRules: null,
 };
@@ -36,24 +31,6 @@ function log(...args: unknown[]): void {
   if (state.debug) {
     console.error(`[${PLUGIN_NAME}]`, ...args);
   }
-}
-
-function buildProxyUrl(config: ProviderProxyConfig): string {
-  const { protocol, host, port, username, password } = config;
-
-  if (!host || !port) {
-    throw new Error('Proxy host and port are required');
-  }
-
-  const auth = username
-    ? password
-      ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
-      : `${encodeURIComponent(username)}@`
-    : '';
-
-  const normalizedProtocol = protocol === 'socks' ? 'socks5' : protocol;
-
-  return `${normalizedProtocol}://${auth}${host}:${port}`;
 }
 
 function getUrlPatternsForProvider(provider: string): string[] {
@@ -84,135 +61,65 @@ function getUrlPatternsForProvider(provider: string): string[] {
 }
 
 /**
- * Pre-compile URL matching rules for better performance
- * This avoids iterating through all patterns on every request
+ * Build proxy URL string from ProxyConfig
  */
-function compileRules(config: ProxyPluginConfig): CompiledRules {
-  const patternToProxy = new Map<string, string | null>();
-  const directPatterns = new Set<string>();
+function buildProxyUrl(config: ProxyConfig): string {
+  const { protocol, host, port, username, password } = config;
 
-  // Compile direct providers from 'direct' list
-  for (const providerId of config.direct ?? []) {
-    const patterns = getUrlPatternsForProvider(providerId);
-    for (const pattern of patterns) {
-      const patternLower = pattern.toLowerCase();
-      patternToProxy.set(patternLower, null);
-      directPatterns.add(patternLower);
-    }
-  }
+  const auth = username
+    ? password
+      ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
+      : `${encodeURIComponent(username)}@`
+    : '';
 
-  // Compile provider-specific rules
-  for (const providerConfig of config.providers ?? []) {
-    const patterns = getUrlPatternsForProvider(providerConfig.provider);
-    const proxyUrl =
-      providerConfig.protocol === 'direct' ? null : buildProxyUrl(providerConfig);
+  const normalizedProtocol = protocol === 'socks' ? 'socks5' : protocol;
 
-    for (const pattern of patterns) {
-      const patternLower = pattern.toLowerCase();
-      // Provider-specific rules override direct list
-      patternToProxy.set(patternLower, proxyUrl);
-      if (proxyUrl === null) {
-        directPatterns.add(patternLower);
-      } else {
-        directPatterns.delete(patternLower);
-      }
-    }
-  }
-
-  // Compile default proxy
-  let defaultProxy: string | null = null;
-  if (config.defaultProxy && config.defaultProxy.protocol !== 'direct') {
-    defaultProxy = buildProxyUrl({
-      provider: 'default',
-      ...config.defaultProxy,
-    });
-  }
-
-  return {
-    patternToProxy,
-    defaultProxy,
-    directPatterns,
-  };
+  return `${normalizedProtocol}://${auth}${host}:${port}`;
 }
 
-function shouldUseProxyForUrl(url: string): string | null | undefined {
-  if (!state.config) return undefined;
+/**
+ * Compile provider configs into URL pattern -> proxy URL map
+ */
+function compileRules(config: ProxyPluginConfig): Map<string, string> {
+  const rules = new Map<string, string>();
+  const providers = getConfiguredProviders(config);
 
-  // Use pre-compiled rules if available
-  if (state.compiledRules) {
-    const urlLower = url.toLowerCase();
+  for (const provider of providers) {
+    const proxyConfig = parseProxyUrl(config[provider] as string);
+    if (!proxyConfig) continue;
 
-    // Check compiled patterns first
-    for (const [pattern, proxyUrl] of state.compiledRules.patternToProxy) {
-      if (urlLower.includes(pattern)) {
-        if (proxyUrl === null) {
-          log('Direct connection (compiled):', url.substring(0, 60));
-        }
-        return proxyUrl;
-      }
+    const proxyUrl = buildProxyUrl(proxyConfig);
+    const patterns = getUrlPatternsForProvider(provider);
+
+    for (const pattern of patterns) {
+      rules.set(pattern.toLowerCase(), proxyUrl);
     }
-
-    // Fall back to default proxy
-    if (state.compiledRules.defaultProxy) {
-      return state.compiledRules.defaultProxy;
-    }
-
-    return undefined;
   }
 
-  // Fallback to dynamic matching if rules not compiled
+  return rules;
+}
+
+/**
+ * Check if URL should use proxy
+ * Returns proxy URL string if should use proxy
+ * Returns null if should connect directly
+ * Returns undefined if no matching rule
+ */
+function shouldUseProxyForUrl(url: string): string | null | undefined {
+  if (!state.config || !state.compiledRules) return undefined;
+
   const urlLower = url.toLowerCase();
 
-  // Check for direct connection first
-  for (const providerId of state.config.direct ?? []) {
-    const patterns = getUrlPatternsForProvider(providerId);
-    for (const pattern of patterns) {
-      if (urlLower.includes(pattern.toLowerCase())) {
-        log('Direct connection for:', providerId);
-        return null;
-      }
-    }
-  }
-
-  if (state.activeProvider) {
-    const proxyUrl = state.providerProxies.get(state.activeProvider);
-    if (proxyUrl) {
+  for (const [pattern, proxyUrl] of state.compiledRules) {
+    if (urlLower.includes(pattern)) {
       return proxyUrl;
     }
-  }
-
-  for (const providerConfig of state.config.providers ?? []) {
-    if (providerConfig.protocol === 'direct') {
-      const patterns = getUrlPatternsForProvider(providerConfig.provider);
-      for (const pattern of patterns) {
-        if (urlLower.includes(pattern.toLowerCase())) {
-          log('Direct connection for:', providerConfig.provider);
-          return null;
-        }
-      }
-      continue;
-    }
-
-    const patterns = getUrlPatternsForProvider(providerConfig.provider);
-
-    for (const pattern of patterns) {
-      if (urlLower.includes(pattern.toLowerCase())) {
-        return buildProxyUrl(providerConfig);
-      }
-    }
-  }
-
-  if (state.config.defaultProxy && state.config.defaultProxy.protocol !== 'direct') {
-    return buildProxyUrl({
-      provider: 'default',
-      ...state.config.defaultProxy,
-    });
   }
 
   return undefined;
 }
 
-const OpenCodeProxyPlugin: Plugin = async ctx => {
+const OpenCodeProxyPlugin: Plugin = async () => {
   state.config = loadConfig();
 
   if (!shouldUseProxy(state.config)) {
@@ -225,11 +132,10 @@ const OpenCodeProxyPlugin: Plugin = async ctx => {
   // Compile rules for better performance
   state.compiledRules = compileRules(config);
 
+  const providers = getConfiguredProviders(config);
   log('Initialized:', {
-    providers:
-      config.providers?.map(p => p.provider + (p.protocol === 'direct' ? '(direct)' : '')) ?? [],
-    direct: config.direct ?? [],
-    compiledPatterns: state.compiledRules.patternToProxy.size,
+    providers,
+    patterns: state.compiledRules.size,
   });
 
   // Watch config file for changes (hot reload)
@@ -238,12 +144,10 @@ const OpenCodeProxyPlugin: Plugin = async ctx => {
       if (newConfig) {
         state.config = newConfig;
         state.debug = newConfig.debug ?? false;
-        // Re-compile rules on config change
         state.compiledRules = compileRules(newConfig);
         log('Config reloaded:', {
-          providers: newConfig.providers?.map(p => p.provider) ?? [],
-          direct: newConfig.direct ?? [],
-          compiledPatterns: state.compiledRules.patternToProxy.size,
+          providers: getConfiguredProviders(newConfig),
+          patterns: state.compiledRules.size,
         });
       }
     });
@@ -263,23 +167,19 @@ const OpenCodeProxyPlugin: Plugin = async ctx => {
         try {
           const proxyUrl = shouldUseProxyForUrl(url);
 
-          if (proxyUrl === null) {
+          if (proxyUrl === null || proxyUrl === undefined) {
+            // Direct connection - either explicitly configured or not in proxy list
             log('Direct:', url.substring(0, 60));
             return state.originalFetch!(input, init);
           }
 
-          if (proxyUrl) {
-            log('Proxy:', url.substring(0, 60), '->', proxyUrl);
-
-            return state.originalFetch!(input, {
-              ...init,
-              proxy: proxyUrl,
-            } as RequestInit & { proxy?: string });
-          }
-          return state.originalFetch!(input, init);
+          log('Proxy:', url.substring(0, 60), '->', proxyUrl);
+          return state.originalFetch!(input, {
+            ...init,
+            proxy: proxyUrl,
+          } as RequestInit & { proxy?: string });
         } catch (error) {
           log('Error processing request:', error);
-          // Fall back to original fetch on error
           return state.originalFetch!(input, init);
         }
       };

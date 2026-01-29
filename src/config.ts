@@ -1,44 +1,49 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import type { ProxyPluginConfig, ProviderProxyConfig, ProxyConfig } from "./types.js";
+import type { ProxyPluginConfig, ProxyConfig } from "./types.js";
 
 const CONFIG_FILENAME = "proxy.json";
 const CONFIG_DIR = "opencode";
 
 export function getConfigPath(): string {
-  const configDir = process.env.XDG_CONFIG_HOME 
+  const configDir = process.env.XDG_CONFIG_HOME
     ?? path.join(os.homedir(), ".config");
   return path.join(configDir, CONFIG_DIR, CONFIG_FILENAME);
 }
 
 /**
- * Parse proxy URL from environment variable
+ * Parse proxy URL string into ProxyConfig
  * Format: protocol://[username:password@]host:port
  */
-function parseProxyUrl(url: string): ProxyConfig | null {
+export function parseProxyUrl(url: string): ProxyConfig | null {
   try {
     const parsed = new URL(url);
     const protocol = parsed.protocol.replace(':', '') as ProxyConfig['protocol'];
     const port = parseInt(parsed.port, 10);
-    
+
     if (!port || port < 1 || port > 65535) {
       return null;
     }
-    
+
+    const validProtocols = ["http", "https", "socks", "socks4", "socks5"];
+    if (!validProtocols.includes(protocol)) {
+      return null;
+    }
+
     const config: ProxyConfig = {
       protocol,
       host: parsed.hostname,
       port,
     };
-    
+
     if (parsed.username) {
       config.username = decodeURIComponent(parsed.username);
     }
     if (parsed.password) {
       config.password = decodeURIComponent(parsed.password);
     }
-    
+
     return config;
   } catch {
     return null;
@@ -46,240 +51,128 @@ function parseProxyUrl(url: string): ProxyConfig | null {
 }
 
 /**
- * Load configuration from environment variables
+ * Load configuration from file
  */
-function loadConfigFromEnv(): ProxyPluginConfig | null {
-  const config: ProxyPluginConfig = {};
-  const providers: ProviderProxyConfig[] = [];
-  
-  // Check for debug mode
-  if (process.env.OPENCODE_PROXY_DEBUG === 'true') {
-    config.debug = true;
-  }
-  
-  // Check for timeout
-  if (process.env.OPENCODE_PROXY_TIMEOUT) {
-    const timeout = parseInt(process.env.OPENCODE_PROXY_TIMEOUT, 10);
-    if (!isNaN(timeout)) {
-      config.timeout = timeout;
-    }
-  }
-  
-  // Check for default proxy
-  if (process.env.OPENCODE_PROXY_DEFAULT) {
-    const defaultProxy = parseProxyUrl(process.env.OPENCODE_PROXY_DEFAULT);
-    if (defaultProxy) {
-      config.defaultProxy = defaultProxy;
-    }
-  }
-  
-  // Check for provider-specific proxies (OPENCODE_PROXY_<PROVIDER_NAME>)
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith('OPENCODE_PROXY_') && key !== 'OPENCODE_PROXY_DEFAULT' && key !== 'OPENCODE_PROXY_DEBUG' && key !== 'OPENCODE_PROXY_TIMEOUT') {
-      if (!value) continue;
-      const providerName = key.replace('OPENCODE_PROXY_', '').toLowerCase();
-      const proxyConfig = parseProxyUrl(value);
-      
-      if (proxyConfig) {
-        providers.push({
-          provider: providerName,
-          ...proxyConfig,
-        });
-      }
-    }
-  }
-  
-  if (providers.length > 0) {
-    config.providers = providers;
-  }
-  
-  // Check for direct providers (comma-separated list)
-  if (process.env.OPENCODE_PROXY_DIRECT) {
-    config.direct = process.env.OPENCODE_PROXY_DIRECT.split(',').map(p => p.trim()).filter(Boolean);
-  }
-  
-  return Object.keys(config).length > 0 ? config : null;
-}
-
 export function loadConfig(): ProxyPluginConfig | null {
   const configPath = getConfigPath();
-  
+
   try {
-    let fileConfig: ProxyPluginConfig | null = null;
-    
-    // Try to load from file
-    if (fs.existsSync(configPath)) {
-      const content = fs.readFileSync(configPath, "utf-8");
-      fileConfig = JSON.parse(content);
-      
-      if (!validateConfig(fileConfig)) {
-        fileConfig = null;
-      }
-    }
-    
-    // Load from environment variables
-    const envConfig = loadConfigFromEnv();
-    
-    // Merge configurations (env variables take precedence over file)
-    if (!fileConfig && !envConfig) {
+    if (!fs.existsSync(configPath)) {
       return null;
     }
-    
-    if (!fileConfig) {
-      return envConfig;
+
+    const content = fs.readFileSync(configPath, "utf-8");
+    const rawConfig = JSON.parse(content) as Record<string, unknown>;
+
+    if (!validateConfig(rawConfig)) {
+      return null;
     }
-    
-    if (!envConfig) {
-      return fileConfig;
+
+    // Build typed config
+    const config: ProxyPluginConfig = {};
+
+    for (const [key, value] of Object.entries(rawConfig)) {
+      if (key === 'debug' && typeof value === 'boolean') {
+        config.debug = value;
+      } else if (typeof value === 'string') {
+        config[key] = value;
+      }
     }
-    
-    // Merge: env config overrides file config
-    return {
-      ...fileConfig,
-      ...envConfig,
-      // Special handling for providers: merge arrays
-      providers: [
-        ...(fileConfig.providers || []),
-        ...(envConfig.providers || []),
-      ],
-      // Special handling for direct: merge arrays and deduplicate
-      direct: Array.from(new Set([
-        ...(fileConfig.direct || []),
-        ...(envConfig.direct || []),
-      ])),
-    };
+
+    return config;
   } catch (error) {
     console.error(`[opencode-proxy] Failed to load config from ${configPath}:`, error);
-    // Try to fall back to env config only
-    return loadConfigFromEnv();
+    return null;
   }
 }
 
-export function validateConfig(config: ProxyPluginConfig | null | undefined): boolean {
-  if (!config) return false;
-  
-  if (config.providers) {
-    for (const provider of config.providers) {
-      if (!provider.provider) {
-        console.error("[opencode-proxy] Provider config missing 'provider' field");
+/**
+ * Validate raw config object from JSON
+ */
+export function validateConfig(config: Record<string, unknown> | null): boolean {
+  if (!config || typeof config !== 'object') {
+    return false;
+  }
+
+  // Check that all string values are valid proxy URLs
+  for (const [key, value] of Object.entries(config)) {
+    if (key === 'debug') {
+      if (typeof value !== 'boolean') {
+        console.error(`[opencode-proxy] Invalid value for 'debug': expected boolean`);
         return false;
       }
-      if (!isValidProxyConfig(provider)) {
-        return false;
-      }
+      continue;
+    }
+
+    if (typeof value !== 'string') {
+      console.error(`[opencode-proxy] Invalid value for '${key}': expected string URL`);
+      return false;
+    }
+
+    if (!parseProxyUrl(value)) {
+      console.error(`[opencode-proxy] Invalid proxy URL for '${key}': ${value}`);
+      return false;
     }
   }
-  
-  if (config.defaultProxy && !isValidProxyConfig(config.defaultProxy)) {
-    return false;
-  }
-  
+
   return true;
 }
 
-function isValidProxyConfig(config: ProxyConfig): boolean {
-  if (config.protocol === "direct") {
-    return true;
-  }
-  
-  if (!config.host) {
-    console.error("[opencode-proxy] Proxy config missing 'host' field");
-    return false;
-  }
-  
-  if (!config.port || config.port < 1 || config.port > 65535) {
-    console.error("[opencode-proxy] Proxy config has invalid 'port' field");
-    return false;
-  }
-  
-  const validProtocols = ["http", "https", "socks", "socks4", "socks5"];
-  if (!validProtocols.includes(config.protocol)) {
-    console.error(`[opencode-proxy] Invalid protocol: ${config.protocol}`);
-    return false;
-  }
-  
-  return true;
-}
-
+/**
+ * Get proxy configuration for a provider
+ * Returns null if provider should connect directly (not configured)
+ * Returns ProxyConfig if provider has a proxy configured
+ */
 export function getProxyForProvider(
   config: ProxyPluginConfig,
   providerID: string
-): ProxyConfig | null | undefined {
-  // Check direct list first - these providers bypass proxy entirely
-  if (config.direct?.includes(providerID)) {
-    return { protocol: "direct" };
+): ProxyConfig | null {
+  const proxyUrl = config[providerID];
+
+  if (typeof proxyUrl !== 'string') {
+    // Provider not configured = direct connection
+    return null;
   }
 
-  const providerConfig = config.providers?.find((p) => {
-    if (p.provider === providerID) return true;
-    if (p.matchSubProviders && providerID.startsWith(p.provider)) return true;
-    return false;
-  });
-
-  if (providerConfig) {
-    const { provider: _, matchSubProviders: __, ...proxyConfig } = providerConfig;
-    // Check if this provider config is set to direct
-    if (proxyConfig.protocol === "direct") {
-      return proxyConfig;
-    }
-    return proxyConfig;
-  }
-
-  return config.defaultProxy;
+  return parseProxyUrl(proxyUrl);
 }
 
+/**
+ * Check if plugin should be active (any provider configured)
+ */
 export function shouldUseProxy(config: ProxyPluginConfig | null): boolean {
   if (!config) return false;
-  return !!(config.providers?.length || config.defaultProxy);
+
+  // Check if any provider is configured (excluding 'debug')
+  return Object.keys(config).some(key => key !== 'debug' && typeof config[key] === 'string');
+}
+
+/**
+ * Get all configured providers
+ */
+export function getConfiguredProviders(config: ProxyPluginConfig): string[] {
+  return Object.keys(config).filter(key => key !== 'debug' && typeof config[key] === 'string');
 }
 
 /**
  * Watch configuration file for changes
- * @param callback Function to call when config changes
- * @returns Function to stop watching
  */
 export function watchConfig(callback: (config: ProxyPluginConfig | null) => void): () => void {
   const configPath = getConfigPath();
-  
-  // Check if fs.watchFile is available (not available in all environments)
+
   if (typeof fs.watchFile !== 'function') {
     console.warn('[opencode-proxy] Config file watching not supported in this environment');
     return () => {};
   }
-  
-  // Watch the config file for changes
+
   fs.watchFile(configPath, { interval: 1000 }, (curr, prev) => {
     if (curr.mtime !== prev.mtime) {
       console.log('[opencode-proxy] Config file changed, reloading...');
-      const newConfig = loadConfig();
-      callback(newConfig);
-    }
-  });
-  
-  // Return unwatch function
-  return () => {
-    fs.unwatchFile(configPath);
-  };
-}
-
-/**
- * Watch environment variables (poll-based, checks every 5 seconds)
- * Note: Environment variables typically don't change at runtime,
- * but this is useful for container environments
- */
-export function watchEnvVariables(callback: (config: ProxyPluginConfig | null) => void): () => void {
-  let lastConfig = JSON.stringify(loadConfigFromEnv());
-  
-  const interval = setInterval(() => {
-    const currentConfig = JSON.stringify(loadConfigFromEnv());
-    if (currentConfig !== lastConfig) {
-      console.log('[opencode-proxy] Environment config changed, reloading...');
-      lastConfig = currentConfig;
       callback(loadConfig());
     }
-  }, 5000);
-  
+  });
+
   return () => {
-    clearInterval(interval);
+    fs.unwatchFile(configPath);
   };
 }
