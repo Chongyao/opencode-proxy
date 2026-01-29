@@ -117,33 +117,36 @@ const OpenCodeProxyPlugin: Plugin = async (ctx) => {
     providers: config.providers?.map(p => p.provider + (p.protocol === "direct" ? "(direct)" : "")) ?? [],
   });
 
-  if (!state.originalFetch) {
-    state.originalFetch = globalThis.fetch;
-    globalThis.fetch = async (
-      input: string | URL | Request,
-      init?: RequestInit
-    ): Promise<Response> => {
-      const url = typeof input === "string" 
-        ? input 
-        : input instanceof URL 
-          ? input.toString() 
-          : input.url;
+  // Defer fetch patching to avoid interfering with plugin loading
+  setTimeout(() => {
+    if (!state.originalFetch) {
+      state.originalFetch = globalThis.fetch;
+      globalThis.fetch = async (
+        input: string | URL | Request,
+        init?: RequestInit
+      ): Promise<Response> => {
+        const url = typeof input === "string" 
+          ? input 
+          : input instanceof URL 
+            ? input.toString() 
+            : input.url;
 
-      const proxyUrl = shouldUseProxyForUrl(url);
-      
-      if (proxyUrl) {
-        log("Proxy:", url.substring(0, 60), "->", proxyUrl);
+        const proxyUrl = shouldUseProxyForUrl(url);
         
-        return state.originalFetch!(input, {
-          ...init,
-          proxy: proxyUrl,
-        } as any);
-      }
-      return state.originalFetch!(input, init);
-    };
-    
-    log("Fetch patched");
-  }
+        if (proxyUrl) {
+          log("Proxy:", url.substring(0, 60), "->", proxyUrl);
+          
+          return state.originalFetch!(input, {
+            ...init,
+            proxy: proxyUrl,
+          } as any);
+        }
+        return state.originalFetch!(input, init);
+      };
+      
+      log("Fetch patched");
+    }
+  }, 0);
 
   return {};
 };
