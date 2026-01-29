@@ -1,0 +1,11 @@
+{
+  "description": "SOCKS4 proxy configuration",
+  "providers": [
+    {
+      "provider": "google",
+      "protocol": "socks4",
+      "host": "127.0.0.1",
+      "port": 1080
+    }
+  ]
+}

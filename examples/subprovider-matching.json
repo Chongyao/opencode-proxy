@@ -1,0 +1,12 @@
+{
+  "description": "Sub-provider matching - google matches google, google-vertex, google-vertex-anthropic",
+  "providers": [
+    {
+      "provider": "google",
+      "protocol": "http",
+      "host": "127.0.0.1",
+      "port": 20171,
+      "matchSubProviders": true
+    }
+  ]
+}

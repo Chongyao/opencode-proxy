@@ -1,0 +1,57 @@
+{
+  "name": "opencode-proxy",
+  "version": "1.0.0",
+  "description": "Per-provider proxy configuration for OpenCode - Route different AI providers through different proxies",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "proxy",
+    "http-proxy",
+    "socks-proxy",
+    "ai",
+    "llm",
+    "provider"
+  ],
+  "author": "OpenCode Proxy Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/opencode-proxy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/opencode-proxy/issues"
+  },
+  "homepage": "https://github.com/yourusername/opencode-proxy#readme",
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.1.19",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "socks-proxy-agent": "^8.0.2",
+    "https-proxy-agent": "^7.0.4",
+    "http-proxy-agent": "^7.0.2"
+  }
+}

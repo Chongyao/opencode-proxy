@@ -1,0 +1,42 @@
+{
+  "description": "Complete configuration with all options",
+  "version": "1",
+  "debug": false,
+  "timeout": 30000,
+  "defaultProxy": {
+    "protocol": "http",
+    "host": "default-proxy.example.com",
+    "port": 8080
+  },
+  "providers": [
+    {
+      "provider": "google",
+      "protocol": "http",
+      "host": "127.0.0.1",
+      "port": 20171,
+      "matchSubProviders": true
+    },
+    {
+      "provider": "anthropic",
+      "protocol": "https",
+      "host": "secure-proxy.example.com",
+      "port": 8443,
+      "username": "user",
+      "password": "pass",
+      "headers": {
+        "X-Custom-Header": "value"
+      }
+    },
+    {
+      "provider": "openai",
+      "protocol": "socks5",
+      "host": "127.0.0.1",
+      "port": 1080
+    },
+    {
+      "provider": "azure",
+      "protocol": "direct"
+    }
+  ],
+  "direct": ["moonshot", "kimi", "groq"]
+}

@@ -1,0 +1,26 @@
+{
+  "description": "Different proxies for different providers with authentication",
+  "providers": [
+    {
+      "provider": "google",
+      "protocol": "http",
+      "host": "proxy1.example.com",
+      "port": 8080
+    },
+    {
+      "provider": "anthropic",
+      "protocol": "https",
+      "host": "proxy2.example.com",
+      "port": 8443,
+      "username": "myuser",
+      "password": "mypassword"
+    },
+    {
+      "provider": "openai",
+      "protocol": "socks5",
+      "host": "127.0.0.1",
+      "port": 1080
+    }
+  ],
+  "direct": ["groq", "mistral"]
+}
