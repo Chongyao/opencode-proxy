@@ -18,6 +18,18 @@ Unconfigured providers connect directly — no `direct` array needed.
 
 ## Install
 
+### For Humans
+
+**Option A: Let an LLM do it**
+
+Paste this into any LLM agent:
+
+```
+Install and configure opencode-proxy by following: https://raw.githubusercontent.com/Chongyao/opencode-proxy/main/README.md
+```
+
+**Option B: Manual**
+
 ```bash
 npm install opencode-proxy
 ```
@@ -38,7 +50,15 @@ Create `~/.config/opencode/proxy.json`:
 }
 ```
 
-Done. Kimi, Moonshot, and other providers connect directly.
+Done.
+
+### For AI Agents
+
+Fetch this README and follow the configuration section. Key points:
+- Install `opencode-proxy` npm package
+- Add `"opencode-proxy"` to the `plugin` array in `~/.config/opencode/opencode.json`
+- Create `~/.config/opencode/proxy.json` with provider-to-proxy URL mapping
+- Unconfigured providers connect directly (no explicit `direct` list needed)
 
 ---
 
