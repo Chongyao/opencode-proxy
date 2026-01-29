@@ -13,12 +13,14 @@ OpenCode uses global `HTTP_PROXY`/`HTTPS_PROXY` environment variables that apply
 
 ## Features
 
-- Per-provider proxy configuration
-- Support for HTTP, HTTPS, SOCKS4, and SOCKS5 proxies
-- Direct connection mode (bypass proxy for specific providers)
-- Sub-provider matching (e.g., `google` matches `google-vertex`)
-- Debug logging for troubleshooting
-- Compatible with `opencode-antigravity-auth` and `oh-my-opencode`
+- **Per-provider proxy configuration** - Different proxies for different AI providers
+- **Multiple proxy protocols** - Support for HTTP, HTTPS, SOCKS4, and SOCKS5 proxies
+- **Direct connection mode** - Bypass proxy for specific providers
+- **Sub-provider matching** - e.g., `google` matches `google-vertex`
+- **Environment variables** - Configure via env vars for CI/CD workflows
+- **Configuration hot reload** - Changes to `proxy.json` are automatically picked up (in debug mode)
+- **Debug logging** - Detailed logs for troubleshooting
+- **Compatible** - Works with `opencode-antigravity-auth` and `oh-my-opencode`
 
 ## Installation
 
@@ -115,6 +117,20 @@ The plugin looks for configuration at:
 | `defaultProxy` | ProxyConfig | Default proxy for providers without specific config |
 | `providers` | ProviderProxyConfig[] | Provider-specific proxy configurations |
 | `direct` | string[] | List of provider IDs to connect directly (no proxy) |
+
+### Environment Variables
+
+You can also configure the plugin using environment variables. This is useful for CI/CD environments or when you want to quickly override file configuration.
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `OPENCODE_PROXY_DEFAULT` | Default proxy for all providers | `socks5://127.0.0.1:1080` |
+| `OPENCODE_PROXY_<PROVIDER>` | Provider-specific proxy | `OPENCODE_PROXY_GOOGLE=http://127.0.0.1:20171` |
+| `OPENCODE_PROXY_DIRECT` | Comma-separated list of providers to connect directly | `moonshot,kimi,groq` |
+| `OPENCODE_PROXY_DEBUG` | Enable debug logging | `true` |
+| `OPENCODE_PROXY_TIMEOUT` | Connection timeout in milliseconds | `30000` |
+
+**Environment variables take precedence over file configuration.**
 
 ### ProxyConfig Options
 
@@ -262,6 +278,25 @@ This configuration will match:
 }
 ```
 
+### Example 6: Environment Variables
+
+```bash
+# Set default proxy for all providers
+export OPENCODE_PROXY_DEFAULT="socks5://127.0.0.1:1080"
+
+# Configure specific providers
+export OPENCODE_PROXY_GOOGLE="http://127.0.0.1:20171"
+export OPENCODE_PROXY_ANTHROPIC="http://user:pass@proxy.example.com:8080"
+
+# Direct connection for specific providers
+export OPENCODE_PROXY_DIRECT="moonshot,kimi,groq"
+
+# Enable debug logging
+export OPENCODE_PROXY_DEBUG="true"
+```
+
+Environment variables can be used alongside the configuration file. **Environment variables take precedence.**
+
 With debug mode enabled, you'll see logs like:
 ```
 [opencode-proxy] Processing request for provider: google
@@ -331,6 +366,18 @@ npm run build
 
 # Type check
 npm run typecheck
+
+# Run tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
+
+# Lint
+npm run lint
+
+# Format code
+npm run format
 ```
 
 ## Contributing
