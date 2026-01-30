@@ -7,7 +7,6 @@ const PLUGIN_NAME = 'opencode-proxy';
 interface ProxyState {
   config: ProxyPluginConfig | null;
   debug: boolean;
-  // Map from URL pattern to proxy URL
   compiledRules: Map<string, string> | null;
 }
 
@@ -50,9 +49,6 @@ function getUrlPatternsForProvider(provider: string): string[] {
   return patterns[provider] ?? [];
 }
 
-/**
- * Build proxy URL string from ProxyConfig
- */
 function buildProxyUrl(config: ProxyConfig): string {
   const { protocol, host, port, username, password } = config;
 
@@ -67,9 +63,6 @@ function buildProxyUrl(config: ProxyConfig): string {
   return `${normalizedProtocol}://${auth}${host}:${port}`;
 }
 
-/**
- * Compile provider configs into URL pattern -> proxy URL map
- */
 function compileRules(config: ProxyPluginConfig): Map<string, string> {
   const rules = new Map<string, string>();
   const providers = getConfiguredProviders(config);
@@ -89,12 +82,6 @@ function compileRules(config: ProxyPluginConfig): Map<string, string> {
   return rules;
 }
 
-/**
- * Check if URL should use proxy
- * Returns proxy URL string if should use proxy
- * Returns null if should connect directly
- * Returns undefined if no matching rule
- */
 function shouldUseProxyForUrl(url: string): string | null | undefined {
   if (!state.config || !state.compiledRules) return undefined;
 
@@ -109,13 +96,7 @@ function shouldUseProxyForUrl(url: string): string | null | undefined {
   return undefined;
 }
 
-/**
- * Create a wrapped fetch function that routes through proxy
- */
-function createProxiedFetch(originalFetch: typeof fetch, label: string): typeof fetch {
-  console.error(`[opencode-proxy] Creating proxied fetch for: ${label}`);
-  console.error(`[opencode-proxy] Original fetch:`, originalFetch.toString().slice(0, 100));
-
+function createProxiedFetch(originalFetch: typeof fetch): typeof fetch {
   return async (
     input: string | URL | Request,
     init?: RequestInit
@@ -123,82 +104,60 @@ function createProxiedFetch(originalFetch: typeof fetch, label: string): typeof 
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
 
-    console.error(`[opencode-proxy] INTERCEPTED: ${url.substring(0, 80)}`);
-
     try {
       const proxyUrl = shouldUseProxyForUrl(url);
 
       if (proxyUrl === null || proxyUrl === undefined) {
-        // Direct connection - either explicitly configured or not in proxy list
-        console.error(`[opencode-proxy] Direct (no proxy config): ${url.substring(0, 60)}`);
+        log('Direct:', url.substring(0, 60));
         return originalFetch(input, init);
       }
 
-      console.error('[opencode-proxy] USING PROXY:', url.substring(0, 60), '->', proxyUrl);
-      const startTime = Date.now();
-      const response = await originalFetch(input, {
+      log('Proxy:', url.substring(0, 60), '->', proxyUrl);
+      return originalFetch(input, {
         ...init,
         proxy: proxyUrl,
       } as RequestInit & { proxy?: string });
-      console.error('[opencode-proxy] Response:', url.substring(0, 60), 'in', Date.now() - startTime, 'ms');
-      return response;
     } catch (error) {
-      console.error('[opencode-proxy] Error:', error);
+      log('Error:', error);
       return originalFetch(input, init);
     }
   };
 }
 
 const OpenCodeProxyPlugin: Plugin = async (ctx) => {
-  console.error('[opencode-proxy] PLUGIN LOADING...');
-
   state.config = loadConfig();
 
   if (!shouldUseProxy(state.config)) {
-    console.error('[opencode-proxy] No proxy configured, skipping');
     return {};
   }
 
   const config = state.config!;
   state.debug = config.debug ?? false;
-
-  // Compile rules for better performance
   state.compiledRules = compileRules(config);
 
   const providers = getConfiguredProviders(config);
-  console.error('[opencode-proxy] Initialized:', {
+  log('Initialized:', {
     providers,
     patterns: state.compiledRules.size,
-    rules: Object.fromEntries(state.compiledRules),
   });
 
-  // Watch config file for changes (hot reload)
   if (config.debug) {
     watchConfig(newConfig => {
       if (newConfig) {
         state.config = newConfig;
         state.debug = newConfig.debug ?? false;
         state.compiledRules = compileRules(newConfig);
-        log('Config reloaded:', {
-          providers: getConfiguredProviders(newConfig),
-          patterns: state.compiledRules.size,
-        });
+        log('Config reloaded');
       }
     });
   }
 
-  // Patch global fetch immediately
-  console.error('[opencode-proxy] About to patch global fetch...');
-  console.error('[opencode-proxy] globalThis.fetch before:', typeof globalThis.fetch, globalThis.fetch?.toString().slice(0, 50));
-
-  if ((globalThis as any).fetch) {
+  // Patch global fetch
+  if ((globalThis as any).fetch && !(globalThis as any).__opencodeProxyPatched) {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = createProxiedFetch(originalFetch, 'global');
+    globalThis.fetch = createProxiedFetch(originalFetch);
     (globalThis as any).__opencodeProxyPatched = true;
-    console.error('[opencode-proxy] Global fetch PATCHED');
-    console.error('[opencode-proxy] globalThis.fetch after:', typeof globalThis.fetch, globalThis.fetch?.toString().slice(0, 50));
-  } else {
-    console.error('[opencode-proxy] ERROR: globalThis.fetch not found!');
+    log('Fetch patched');
   }
 
   return {};
